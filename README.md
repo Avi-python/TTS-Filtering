@@ -99,6 +99,37 @@ pip install -e /mnt/usr1/avi/Projects/formosan/Filtering
 
 ---
 
+### 範例 D：Inpainting（Hotfix）分離答案與合成文字
+
+當特定詞彙需要用音標（如 `[IH1][NG][G][L][IH0][SH]`）修正發音，但 Whisper ASR CER 仍要以原本文字當標準答案時：
+
+- **單句模式**（使用 `--tts_text` 指定合成用文字）：
+```bash
+/mnt/usr1/avi/miniconda3/envs/sarcvoice/bin/python /mnt/usr1/avi/Projects/formosan/Filtering/scripts/run_filter.py \
+  --lang tsu \
+  --text "ʼa ongko ta pasuya 我的 English 不是很好." \
+  --tts_text "ʼa ongko ta pasuya 我的 [IH1][NG][G][L][IH0][SH] 不是很好." \
+  --prompt_wav /nfs/DGX2/Workspace/avi/nchc-2026-cou/協作平台/wav/c19/cou_e_04842_c19.wav \
+  --prompt_text "a panto pangka to kiosicumia." \
+  --instruct_prefix "You are a helpful assistant. 请用鄒語表达。<|endofprompt|>" \
+  --output_wav outputs/tsu_inpaint.wav
+```
+
+- **批次 JSONL 模式**（使用 `--tts_text_field` 指定合成用欄位；若某筆資料該欄位為空或不存在，會自動 fallback 使用答案欄位）：
+```bash
+/mnt/usr1/avi/miniconda3/envs/sarcvoice/bin/python /mnt/usr1/avi/Projects/formosan/Filtering/scripts/run_filter.py \
+  --lang tsu \
+  --input_jsonl input_with_hotfix.jsonl \
+  --text_field clean_text \
+  --tts_text_field inpaint_text \
+  --prompt_wav /path/to/prompt.wav \
+  --prompt_text "prompt text" \
+  --output_dir outputs/tsu_inpaint_batch \
+  --output_jsonl outputs/tsu_inpaint_batch/results.jsonl
+```
+
+---
+
 ## 4. Python API 使用範例
 
 您也可以直接在 Python 程式中呼叫 `FilterConfig` 與 `TTSFilterPipeline`：
@@ -148,6 +179,8 @@ print(
 | `--tts_model_name` | `None` | 指定 `tts/<lang>/models/` 下的特定子目錄名稱 |
 | `--no_normalize` | `False` | 停用 Post-TN 文本正規化（預設會轉小寫並去除標點，保留 `ʼ` / `'` 等喉塞音符號） |
 | `--discard_on_fail` | `False` | 超過 `max_retries` 仍未通過時捨棄 `.wav`（預設保留 CER 最低者並標記 `passed: false`） |
+| `--tts_text` | `None` | （單句模式）指定送入 TTS 合成的文字（可含 inpainting 音標），未指定時使用 `--text` |
+| `--tts_text_field` | `None` | （批次模式）指定 JSONL 中用於 TTS 合成的欄位名稱；該筆資料為空時自動 fallback 用答案欄位 |
 
 ---
 
@@ -156,6 +189,7 @@ print(
 批次模式輸出的 `.jsonl` 會保留原始輸入的所有欄位，並新增以下欄位：
 
 - `tts_audio`：最終儲存的 `.wav` 檔案路徑（若 `--discard_on_fail` 且未通過則為 `null`）
+- `tts_input_text`：實際送入 CosyVoice3 合成的文字（若有使用 inpainting hotfix 會記錄於此）
 - `asr_hypothesis`：最終選定嘗試的 Whisper ASR 辨識結果
 - `cer`：最終選定嘗試的 CER 數值
 - `seed`：最終選定嘗試使用的隨機種子

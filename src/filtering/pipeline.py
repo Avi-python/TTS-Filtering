@@ -73,6 +73,7 @@ class TTSFilterPipeline:
         prompt_wav: Optional[str] = None,
         prompt_text: Optional[str] = None,
         instruct_text: Optional[str] = None,
+        tts_text: Optional[str] = None,
     ) -> FilterResult:
         """Run up to `max_retries` seed attempts until CER <= `cer_threshold`."""
         eff_prompt_wav = prompt_wav or self.config.default_prompt_wav
@@ -81,6 +82,7 @@ class TTSFilterPipeline:
         eff_prompt_text = (
             prompt_text if prompt_text is not None else self.config.default_prompt_text
         )
+        eff_tts_text = tts_text.strip() if isinstance(tts_text, str) and tts_text.strip() else text
 
         norm_ref = normalize_for_cer(text) if self.config.normalize_text else text.strip()
         attempts: list[AttemptResult] = []
@@ -90,7 +92,7 @@ class TTSFilterPipeline:
         for attempt_idx in range(self.config.max_retries):
             seed = self.config.base_seed + attempt_idx
             waveform, sample_rate = self.tts_engine.synthesize(
-                text=text,
+                text=eff_tts_text,
                 seed=seed,
                 prompt_wav=eff_prompt_wav,
                 prompt_text=eff_prompt_text,
@@ -127,6 +129,7 @@ class TTSFilterPipeline:
                     normalized_ref=norm_ref,
                     passed=True,
                     best_attempt=record,
+                    tts_text=eff_tts_text,
                     attempts=attempts,
                 )
 
@@ -141,5 +144,6 @@ class TTSFilterPipeline:
             normalized_ref=norm_ref,
             passed=False,
             best_attempt=best_attempt,
+            tts_text=eff_tts_text,
             attempts=attempts,
         )

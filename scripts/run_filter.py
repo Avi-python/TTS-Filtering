@@ -55,6 +55,15 @@ def _extract_text(record: dict, text_field: Optional[str]) -> str:
     raise KeyError("JSONL record has no non-empty 'clean_text', 'text', or 'target_text'")
 
 
+def _extract_optional_text(record: dict, field: Optional[str]) -> Optional[str]:
+    if not field:
+        return None
+    val = record.get(field)
+    if isinstance(val, str) and val.strip():
+        return val.strip()
+    return None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Filter CosyVoice3 TTS outputs with Whisper ASR CER and seed retries."
@@ -85,6 +94,12 @@ def parse_args() -> argparse.Namespace:
 
     # Single-text mode
     parser.add_argument("--text", type=str, default=None, help="Single utterance text")
+    parser.add_argument(
+        "--tts_text",
+        type=str,
+        default=None,
+        help="Optional synthesis text (e.g. phoneme inpainting); defaults to --text",
+    )
     parser.add_argument("--output_wav", type=Path, default=None)
 
     # Batch JSONL mode
@@ -92,6 +107,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output_dir", type=Path, default=Path("outputs"))
     parser.add_argument("--output_jsonl", type=Path, default=None)
     parser.add_argument("--text_field", type=str, default=None)
+    parser.add_argument(
+        "--tts_text_field",
+        type=str,
+        default=None,
+        help="Optional JSONL field for TTS synthesis text; falls back to reference text",
+    )
     parser.add_argument("--limit", type=int, default=None)
     return parser.parse_args()
 
@@ -125,9 +146,14 @@ def main() -> None:
 
     if args.text:
         out_wav = args.output_wav or (args.output_dir / f"{args.lang}_sample.wav")
-        res = pipeline.filter_utterance(text=args.text, output_wav_path=out_wav)
+        res = pipeline.filter_utterance(
+            text=args.text,
+            output_wav_path=out_wav,
+            tts_text=args.tts_text,
+        )
         summary = {
             "text": res.text,
+            "tts_input_text": res.tts_text,
             "passed": res.passed,
             "best_cer": round(res.best_attempt.cer, 4),
             "best_seed": res.best_attempt.seed,
@@ -159,6 +185,7 @@ def main() -> None:
                 continue
             item = json.loads(line)
             target_text = _extract_text(item, args.text_field)
+            item_tts_text = _extract_optional_text(item, args.tts_text_field)
             item_prompt_wav = item.get("prompt_wav") or args.prompt_wav
             item_prompt_text = item.get("prompt_text") or args.prompt_text
             stem = str(item.get("id") or f"{args.lang}_{idx:05d}")
@@ -169,6 +196,7 @@ def main() -> None:
                 output_wav_path=out_wav,
                 prompt_wav=item_prompt_wav,
                 prompt_text=item_prompt_text,
+                tts_text=item_tts_text,
             )
 
             total += 1
@@ -180,6 +208,7 @@ def main() -> None:
             out_item.update(
                 {
                     "tts_audio": res.best_attempt.audio_path,
+                    "tts_input_text": res.tts_text,
                     "asr_hypothesis": res.best_attempt.hypothesis,
                     "cer": round(res.best_attempt.cer, 4),
                     "seed": res.best_attempt.seed,

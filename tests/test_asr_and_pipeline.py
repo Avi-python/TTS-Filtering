@@ -13,6 +13,7 @@ class MockTTSEngine:
     def __init__(self, sample_rate: int = 24000) -> None:
         self.sample_rate = sample_rate
         self.seeds_used: list[int] = []
+        self.texts_used: list[str] = []
 
     def synthesize(
         self,
@@ -23,6 +24,7 @@ class MockTTSEngine:
         instruct_text: str | None = None,
     ) -> tuple[torch.Tensor, int]:
         self.seeds_used.append(seed)
+        self.texts_used.append(text)
         # Encode seed into amplitude so each attempt produces distinct audio
         waveform = torch.full((1, self.sample_rate // 2), float(seed) * 1e-4)
         return waveform, self.sample_rate
@@ -139,3 +141,40 @@ def test_pipeline_exhausts_retries_keep_best_and_discard(tmp_path: Path) -> None
     assert res_discard.passed is False
     assert res_discard.best_attempt.audio_path is None
     assert not discard_wav.exists()
+
+
+def test_pipeline_separate_tts_text_and_fallback(tmp_path: Path) -> None:
+    cfg = FilterConfig(
+        lang="tsu",
+        cer_threshold=0.0,
+        max_retries=2,
+        base_seed=42,
+        default_prompt_wav="dummy.wav",
+        default_prompt_text="dummy",
+    )
+    ref = "ʼa ongko ta pasuya 我的 English 不是很好."
+    hotfix = "ʼa ongko ta pasuya 我的 [IH1][NG][G][L][IH0][SH] 不是很好."
+
+    tts = MockTTSEngine()
+    asr = MockASREngine([ref, ref])
+    pipeline = TTSFilterPipeline(cfg, tts, asr)
+
+    res_inpaint = pipeline.filter_utterance(
+        text=ref,
+        tts_text=hotfix,
+        output_wav_path=tmp_path / "inpaint.wav",
+    )
+    assert res_inpaint.passed is True
+    assert res_inpaint.text == ref
+    assert res_inpaint.tts_text == hotfix
+    assert tts.texts_used == [hotfix]
+    assert res_inpaint.best_attempt.cer == 0.0
+
+    res_fallback = pipeline.filter_utterance(
+        text=ref,
+        tts_text="   ",
+        output_wav_path=tmp_path / "fallback.wav",
+    )
+    assert res_fallback.passed is True
+    assert res_fallback.tts_text == ref
+    assert tts.texts_used == [hotfix, ref]

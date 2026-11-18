@@ -62,4 +62,5 @@ class FilterResult:
     normalized_ref: str
     passed: bool
     best_attempt: AttemptResult
+    tts_text: str = ""
     attempts: list[AttemptResult] = field(default_factory=list)
